@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+endpoint="https://api.cloudflare.com/client/v4/accounts/"
+auth_email="X-Auth-Email: ${CLOUDFLARE_EMAIL}" 
+auth_key="X-Auth-Key: ${CLOUDFLARE_API_KEY}"
+
+get-account-id() {
+curl -s -X GET "${endpoint}" -H "${auth_email}" -H "${auth_key}" | jq '.result[] | .id' | tr -d "\""
+}
+
+account_id=$(get-account-id)
+
+get-project-name() {
+curl -s -X GET "${endpoint}${account_id}/pages/projects/" -H "${auth_email}" -H "${auth_key}" | jq '.result[] | .name' | tr -d "\""
+}
+
+get-domain-name() {
+curl -s -X GET "${endpoint}${account_id}/pages/projects/${project}/domains/${domain_name}" -H "${auth_email}" -H "${auth_key}" | jq '.result[] | .name' | tr -d "\""
+}
+
+main-tf-exists() {
+  [ -n "main.tf" ]
+}
+
+check-project-exits() {
+  grep "\"cloudflare_pages_project\" \"${project}\"" main.tf
+}
+
+check-domain-exists() {
+  grep "\"cloudflare_pages_project\" \"${domain//./-}\"" main.tf
+}
+
+add-project-resource() {
+  echo -e "\nresource \"cloudflare_pages_project\" \"${project}\" {\n\n}" >> main.tf
+}
+
+add-domain-resource() {
+  echo -e "\nresource \"cloudflare_pages_domain\" \"${domain//./-}\" {\n\n}" >> main.tf
+}
+
+import-project() {
+  terraform import cloudflare_pages_project.${domain//./-} ${account_id}/${project}
+}
+
+import-domain() {
+  terraform import cloudflare_pages_domain.${domain//./-} ${account_id}/${project}/${domain}
+}
+
+pre-requisite-checks() {
+  if main-tf-exits; then
+    terraform init
+  else
+    echo "Missing main.tf"
+  fi
+}
+
+main () {
+for project in $(get-project-name)
+do
+  for domain in $(get-domain-name)
+    do
+      if check-domain-exists; then
+        import-domain
+      else
+        add-domain-resource; import-domain
+      fi
+    done;
+  if check-project-exits; then
+    import-project
+  else
+    add-project-resource; import-project
+  fi;
+done
+}
+get-project-name
